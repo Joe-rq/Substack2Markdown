@@ -105,15 +105,24 @@ class BaseSubstackScraper(ABC):
         Fetches URLs from sitemap.xml.
         """
         sitemap_url = f"{self.base_substack_url}sitemap.xml"
-        response = requests.get(sitemap_url)
-
-        if not response.ok:
-            print(f'Error fetching sitemap at {sitemap_url}: {response.status_code}')
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/129.0.0.0 Safari/537.36"
+            )
+        }
+        try:
+            response = requests.get(sitemap_url, headers=headers, timeout=15)
+            if not response.ok:
+                print(f"Error fetching sitemap at {sitemap_url}: {response.status_code}")
+                return []
+            root = ET.fromstring(response.content)
+            urls = [element.text for element in root.iter('{http://www.sitemaps.org/schemas/sitemap/0.9}loc')]
+            return urls
+        except requests.exceptions.RequestException as e:
+            print(f"Request to sitemap failed ({sitemap_url}): {e}")
             return []
-
-        root = ET.fromstring(response.content)
-        urls = [element.text for element in root.iter('{http://www.sitemaps.org/schemas/sitemap/0.9}loc')]
-        return urls
 
     def fetch_urls_from_feed(self) -> List[str]:
         """
@@ -121,20 +130,28 @@ class BaseSubstackScraper(ABC):
         """
         print('Falling back to feed.xml. This will only contain up to the 22 most recent posts.')
         feed_url = f"{self.base_substack_url}feed.xml"
-        response = requests.get(feed_url)
-
-        if not response.ok:
-            print(f'Error fetching feed at {feed_url}: {response.status_code}')
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/129.0.0.0 Safari/537.36"
+            )
+        }
+        try:
+            response = requests.get(feed_url, headers=headers, timeout=15)
+            if not response.ok:
+                print(f"Error fetching feed at {feed_url}: {response.status_code}")
+                return []
+            root = ET.fromstring(response.content)
+            urls = []
+            for item in root.findall('.//item'):
+                link = item.find('link')
+                if link is not None and link.text:
+                    urls.append(link.text)
+            return urls
+        except requests.exceptions.RequestException as e:
+            print(f"Request to feed failed ({feed_url}): {e}")
             return []
-
-        root = ET.fromstring(response.content)
-        urls = []
-        for item in root.findall('.//item'):
-            link = item.find('link')
-            if link is not None and link.text:
-                urls.append(link.text)
-
-        return urls
 
     @staticmethod
     def filter_urls(urls: List[str], keywords: List[str]) -> List[str]:
@@ -379,14 +396,25 @@ class SubstackScraper(BaseSubstackScraper):
         Gets soup from URL using requests
         """
         try:
-            page = requests.get(url, headers=None)
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/129.0.0.0 Safari/537.36"
+                )
+            }
+            page = requests.get(url, headers=headers, timeout=20)
+            if not page.ok:
+                print(f"Error fetching page {url}: {page.status_code}")
+                return None
             soup = BeautifulSoup(page.content, "html.parser")
             if soup.find("h2", class_="paywall-title"):
                 print(f"Skipping premium article: {url}")
                 return None
             return soup
-        except Exception as e:
-            raise ValueError(f"Error fetching page: {e}") from e
+        except requests.exceptions.RequestException as e:
+            print(f"Request failed for {url}: {e}")
+            return None
 
 
 class PremiumSubstackScraper(BaseSubstackScraper):
