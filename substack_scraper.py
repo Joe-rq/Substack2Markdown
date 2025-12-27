@@ -348,7 +348,18 @@ class BaseSubstackScraper(ABC):
         """
         essays_data = []
         count = 0
+        
+        # 统计计数器
+        stats = {
+            'new': 0,        # 新增文章
+            'skipped': 0,    # 已存在的文章
+            'premium': 0,    # 跳过的付费文章
+            'failed': 0      # 失败的文章
+        }
+        
         total = num_posts_to_scrape if num_posts_to_scrape != 0 else len(self.post_urls)
+        print(f"\n开始抓取，共 {total} 篇文章待处理...\n")
+        
         for url in tqdm(self.post_urls, total=total):
             try:
                 md_filename = self.get_filename_from_url(url, filetype=".md")
@@ -359,6 +370,7 @@ class BaseSubstackScraper(ABC):
                 if not os.path.exists(md_filepath):
                     soup = self.get_url_soup(url)
                     if soup is None:
+                        stats['premium'] += 1
                         total += 1
                         continue
                     title, subtitle, like_count, date, md = self.extract_post_data(soup)
@@ -376,15 +388,29 @@ class BaseSubstackScraper(ABC):
                         "file_link": md_filepath,
                         "html_link": html_filepath
                     })
+                    stats['new'] += 1
                 else:
-                    print(f"File already exists: {md_filepath}")
+                    stats['skipped'] += 1
             except Exception as e:
-                print(f"Error scraping post: {e}")
+                print(f"处理失败: {e}")
+                stats['failed'] += 1
             count += 1
             if num_posts_to_scrape != 0 and count == num_posts_to_scrape:
                 break
+        
         self.save_essays_data_to_json(essays_data=essays_data)
         generate_html_file(author_name=self.writer_name)
+        
+        # 输出统计摘要
+        print("\n" + "="*50)
+        print("抓取完成！统计信息如下：")
+        print("="*50)
+        print(f"✅ 新增文章: {stats['new']} 篇")
+        print(f"⏭️  已存在(跳过): {stats['skipped']} 篇")
+        print(f"🔒 付费文章(跳过): {stats['premium']} 篇")
+        print(f"❌ 失败: {stats['failed']} 篇")
+        print(f"📊 总计处理: {count} 篇")
+        print("="*50 + "\n")
 
 
 class SubstackScraper(BaseSubstackScraper):
@@ -409,7 +435,7 @@ class SubstackScraper(BaseSubstackScraper):
                 return None
             soup = BeautifulSoup(page.content, "html.parser")
             if soup.find("h2", class_="paywall-title"):
-                print(f"Skipping premium article: {url}")
+                # 付费文章，静默跳过，统计会在 scrape_posts 中处理
                 return None
             return soup
         except requests.exceptions.RequestException as e:
